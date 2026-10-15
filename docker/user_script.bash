@@ -25,6 +25,14 @@ STUDIO_REPO="https://github.com/eddiehavila/Yue2_Studio.git"
 STUDIO_BRANCH="dockerized"
 STUDIO_PORT=7862
 
+# audio.cpp engine for Studio's GGUF backend. The commit is the one Studio's adapter
+# (src/yue2_studio/gguf.py) was checked against. The binary lands in build/bin under
+# tools/audio.cpp, where Studio detects it automatically.
+AUDIOCPP_REPO="https://github.com/0xShug0/audio.cpp.git"
+AUDIOCPP_COMMIT="fbe3eedbf6c504e45189e2cdcf1b257740a28863"
+AUDIOCPP_DIR="$YUE2_DIR/tools/audio.cpp"
+AUDIOCPP_CUDA_ARCH="native"   # build for the GPUs visible at build time; e.g. 89 = RTX 4000
+
 
 
 LOG_PREFIX="[yue2_studio]"
@@ -86,6 +94,29 @@ git_sync() {
 
 ensure_dir() { mkdir -p "$1"; }
 
+# Build audiocpp_cli once per AUDIOCPP_COMMIT. Each step returns on failure explicitly:
+# set -e does not apply inside a function called from an || list.
+build_audiocpp() {
+  local cli="$AUDIOCPP_DIR/build/bin/audiocpp_cli"
+  local stamp="$AUDIOCPP_DIR/build/.audiocpp-commit"
+  if [[ -x "$cli" && "$(cat "$stamp" 2>/dev/null)" == "$AUDIOCPP_COMMIT" ]]; then
+    log "audio.cpp $AUDIOCPP_COMMIT already built: $cli"
+    return 0
+  fi
+  log "Fetching audio.cpp $AUDIOCPP_COMMIT into $AUDIOCPP_DIR"
+  if [[ ! -d "$AUDIOCPP_DIR/.git" ]]; then
+    mkdir -p "$AUDIOCPP_DIR" && git -C "$AUDIOCPP_DIR" init -q || return 1
+  fi
+  git -C "$AUDIOCPP_DIR" fetch --depth 1 "$AUDIOCPP_REPO" "$AUDIOCPP_COMMIT" || return 1
+  git -C "$AUDIOCPP_DIR" checkout -q --detach FETCH_HEAD || return 1
+  log "Building audiocpp_cli with CUDA (arch: $AUDIOCPP_CUDA_ARCH); the first build takes a while"
+  (cd "$AUDIOCPP_DIR" && ./scripts/build_linux.sh --backend cuda --cuda-arch "$AUDIOCPP_CUDA_ARCH" \
+      --build-dir build --target audiocpp_cli) || return 1
+  [[ -x "$cli" ]] || { log "audio.cpp build finished but $cli is missing"; return 1; }
+  echo "$AUDIOCPP_COMMIT" > "$stamp"
+  log "audio.cpp ready: $cli"
+}
+
 stop_existing_api() {
   if need_cmd pgrep; then
     local pids
@@ -106,6 +137,8 @@ ensure_root_or_sudo
 
 log "== Installing system packages"
 DEBIAN_FRONTEND=noninteractive sudo apt-get update -y
+apt_install_if_missing cmake        # audio.cpp build
+apt_install_if_missing ninja-build  # audio.cpp build
 
 
 log "== Sync yue2_studio repo (contained under $YUE2_DIR)"
@@ -140,6 +173,9 @@ python -m pip install -U pip wheel setuptools
 python -m pip install --upgrade pip
 python -m pip install .
 
+log "== Ensure audio.cpp engine (GGUF backend)"
+# After the YuE reset/clean above: git clean leaves the nested audio.cpp repo alone.
+build_audiocpp || log "WARNING: audio.cpp build failed; GGUF is unavailable, the Torch engine still works"
 
 
 log "== Sync yue2_studio repo (contained under $YUE2_DIR)"
