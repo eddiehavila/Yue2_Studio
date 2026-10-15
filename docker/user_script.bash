@@ -25,6 +25,11 @@ STUDIO_REPO="https://github.com/eddiehavila/Yue2_Studio.git"
 STUDIO_BRANCH="dockerized"
 STUDIO_PORT=7862
 
+# YuE2 weights Studio uses by default (models/YuE2-3B, models/YuE2-Vae). Revisions match the
+# ones Studio's trainer setup pins (src/yue2_studio/trainer_setup.py).
+YUE2_MODEL_REVISION="1a96eca688d6ae5d7f0feb88573fec89920fcd19"
+YUE2_VAE_REVISION="95535e72a97bc0f09b8ada125d26b4009428c0e8"
+
 # audio.cpp engine for Studio's optional GGUF backend. Off by default: Torch needs none of it.
 # Enable with YUE2_BUILD_AUDIOCPP=1 (e.g. under environment: in compose.yaml).
 BUILD_AUDIOCPP="${YUE2_BUILD_AUDIOCPP:-0}"
@@ -96,6 +101,30 @@ git_sync() {
 }
 
 ensure_dir() { mkdir -p "$1"; }
+
+# Download a pinned YuE2 snapshot into models/<name>, where Studio and the yue2 CLI look by
+# default. YuE's models/ is gitignored and on the mounted volume, so it survives restarts,
+# container rebuilds and the git clean above. A stamp records the finished revision; an
+# interrupted download is resumed on the next run.
+fetch_model() {
+  local repo="$1" revision="$2" target="$YUE2_DIR/models/$3"
+  if [[ -f "$target/config.json" && "$(cat "$target/.yue2-revision" 2>/dev/null)" == "$revision" ]]; then
+    log "Model ready: $target ($repo@${revision:0:7})"
+    return 0
+  fi
+  log "Downloading $repo@${revision:0:7} into $target"
+  python - "$repo" "$revision" "$target" <<'PY' || return 1
+import sys
+from huggingface_hub import snapshot_download
+from yue2.storage import MODEL_FILES, MODEL_LICENSES
+repo, revision, target = sys.argv[1:]
+# Same file set yue2 itself resolves; never pulls anything else from the repo.
+snapshot_download(repo, revision=revision, local_dir=target,
+                  allow_patterns=sorted(MODEL_FILES) + ["model-?????-of-?????.safetensors"] +
+                                 ["licenses/" + name for name in sorted(MODEL_LICENSES)])
+PY
+  echo "$revision" > "$target/.yue2-revision"
+}
 
 # Build audiocpp_cli once per AUDIOCPP_COMMIT. Each step returns on failure explicitly:
 # set -e does not apply inside a function called from an || list.
@@ -177,6 +206,10 @@ python -m pip install -U pip wheel setuptools
 
 python -m pip install --upgrade pip
 python -m pip install .
+
+log "== Ensure YuE2 models (first run downloads about 8 GB)"
+fetch_model m-a-p/YuE2-3B "$YUE2_MODEL_REVISION" YuE2-3B || { log "ERROR: YuE2-3B download failed"; exit 1; }
+fetch_model m-a-p/YuE2-Vae "$YUE2_VAE_REVISION" YuE2-Vae || { log "ERROR: YuE2-Vae download failed"; exit 1; }
 
 log "== Ensure audio.cpp engine (GGUF backend)"
 # After the YuE reset/clean above: git clean leaves the nested audio.cpp repo alone.
