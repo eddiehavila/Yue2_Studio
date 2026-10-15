@@ -3,13 +3,13 @@ set -Eeuo pipefail
 
 
 # Check if the script is being run as root
-if [ "$EUID" -ne 0 ]; then
-  echo "Not running as root. Rerunning with sudo..."
-  exec sudo "$0" "$@"
-fi
-
-# Everything below this line runs as root safely
-echo "Success! Current user ID is: $EUID"
+#if [ "$EUID" -ne 0 ]; then
+#  echo "Not running as root. Rerunning with sudo..."
+#  exec sudo "$0" "$@"
+#fi
+#
+## Everything below this line runs as root safely
+#echo "Success! Current user ID is: $EUID"
 
 
 # ---- config ----
@@ -71,7 +71,9 @@ git_sync() {
     git -C "$target_dir" fetch --all --prune
     # keep it deterministic for repeat runs
     branch="${branch:-$(git -C "$target_dir" rev-parse --abbrev-ref HEAD)}"
-    git -C "$target_dir" checkout -B "$branch" "origin/$branch"
+    if [[ "$(git -C "$target_dir" rev-parse --abbrev-ref HEAD)" != "$branch" ]]; then
+      git -C "$target_dir" checkout -B "$branch" "origin/$branch"
+    fi
     git -C "$target_dir" reset --hard "origin/$branch"
   elif [[ -e "$target_dir" ]]; then
     echo "ERROR: $target_dir exists but is not a git repo. Move it aside or delete it." >&2
