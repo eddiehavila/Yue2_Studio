@@ -1,0 +1,42 @@
+services:
+  comfyui-nvidia130-yue2_studio:
+    image: mmartial/comfyui-nvidia-docker:ubuntu24_cuda13.0-latest
+    container_name: comfyui-nvidia130-yue2_studio
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ports:
+      - "7862:7862"
+    volumes:
+      - "./run:/comfy/mnt"
+      - "./basedir:/basedir"
+      - "./userscripts_dir:/userscripts_dir"
+      - "../models:/basedir/models"
+      #- "/usr/lib/wsl:/usr/lib/wsl"
+      #- ./config.sh:/comfyui-nvidia_config.sh
+      # - ./init.bash:/comfyui-nvidia_init.bash
+    restart: no
+    environment:
+      # set WANTED_UID and WANTED_GID to your user and group as obtained with `id -u` and `id -g`
+      - WANTED_UID=1000
+      - WANTED_GID=1000
+      - BASE_DIRECTORY=/basedir
+      - SECURITY_LEVEL=weak
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVCC_APPEND_FLAGS=-allow-unsupported-compiler
+      #- COMFY_CMDLINE_EXTRA=--fast
+      #- COMFY_CMDLINE_EXTRA=--fast --use-sage-attention --reserve-vram 4
+      #- COMFY_CMDLINE_EXTRA=--fast --use-sage-attention --lowvram --disable-smart-memory
+      #- COMFY_CMDLINE_EXTRA=--fast --use-sage-attention --enable-manager --enable-manager-legacy-ui
+      #- COMFY_CMDLINE_EXTRA=--fast --enable-manager --enable-manager-legacy-ui
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
+                - compute
+                - utility

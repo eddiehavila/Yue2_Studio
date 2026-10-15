@@ -53,6 +53,7 @@ class StudioServer(ThreadingHTTPServer):
         self.browser_lifetime = BrowserLifetime()
         self.browser_stop = threading.Event()
         self.auto_stopping = False
+        self.keep_alive = False
         self.token = secrets.token_urlsafe(32)
         self.llm_lock = threading.Lock()
         super().__init__(address,Handler)
@@ -66,7 +67,7 @@ class StudioServer(ThreadingHTTPServer):
         busy = (self.datasets.busy() or self.models.busy() or self.llm_lock.locked() or
                 any(j['status'] in ('queued','running','cancelling') for j in self.jobs.list()) or
                 any(b['status'] in ('queued','writing','rendering','cancelling') for b in self.surprises.list()))
-        if not self.auto_stopping and self.browser_lifetime.should_stop(busy):
+        if not self.keep_alive and not self.auto_stopping and self.browser_lifetime.should_stop(busy):
             self.auto_stopping = True
             print('Last Studio tab closed; no active work. Stopping server.',flush=True)
             threading.Thread(target=self.shutdown,daemon=True).start()
@@ -133,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.browser_session()
             elif path=='/api/bootstrap':
                 self.json({'token':self.server.token,'groups':GROUPS,'fixed':FIXED,'defaults':defaults(),
-                    'providers':llm.catalogue(),'songwriter_prompt':llm.PROMPT,'compatibility':capabilities(),'profanity_check':True,'surprise_style_lock':True,'browser_autoclose':True,
+                    'providers':llm.catalogue(),'songwriter_prompt':llm.PROMPT,'compatibility':capabilities(),'profanity_check':True,'surprise_style_lock':True,'browser_autoclose':not self.server.keep_alive,
                     # Audius documents its API key as a public OAuth client identifier. Never expose the bearer token here.
                     'audius':audius_config(),
                     'paths':{'root':str(ROOT),'runs':str(self.server.jobs.root)},
@@ -445,6 +446,8 @@ def main():
         default=[h for h in os.environ.get('YUE2_STUDIO_ALLOW_HOSTS','').split(',') if h.strip()],
         help='Extra hostname or IP the browser may use to reach Studio (repeatable; * allows any)')
     parser.add_argument('--port',type=int,default=7862)
+    parser.add_argument('--keep-alive',action='store_true',default=bool(os.environ.get('YUE2_STUDIO_KEEP_ALIVE')),
+        help='Keep running after the last Studio tab closes (or set $YUE2_STUDIO_KEEP_ALIVE)')
     parser.add_argument('--no-browser',action='store_true')
     parser.add_argument('--stop',action='store_true',help='Stop the studio listening on the selected port')
     parser.add_argument('--runs-dir',type=Path,default=ROOT/'runs/studio',help='Studio run and upload folder')
@@ -479,6 +482,7 @@ def main():
         if not args.no_browser:
             webbrowser.open(url)
         return
+    server.keep_alive=args.keep_alive
     url=f'http://{local}:{server.server_port}'
     print(f'YuE2 Studio: {url}\nRuns: {server.jobs.root}\nPress Ctrl+C to stop.',flush=True)
     if not args.no_browser:
