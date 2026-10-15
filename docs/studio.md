@@ -28,6 +28,20 @@ studio is already running simply opens it; it does not create a second queue.
 ```
 
 The studio binds to loopback. It is a local application, not a public hosted service.
+
+### Docker or another container
+
+Inside a container, loopback is not reachable from the host. Bind to all interfaces and publish the port:
+
+```bash
+python launch_studio.py --host 0.0.0.0 --no-browser      # or set YUE2_STUDIO_HOST=0.0.0.0
+docker run -p 127.0.0.1:7862:7862 ...                    # then open http://localhost:7862 on the host
+```
+
+Requests must use the host name `localhost` or `127.0.0.1` (any published port works). To browse by
+another name or IP, add it with `--allow-host studio.lan` (repeatable) or
+`YUE2_STUDIO_ALLOW_HOSTS=studio.lan,192.168.1.20`. Studio has no login: anyone who can reach the port
+can control it, so publish it on `127.0.0.1` unless you trust the network.
 Model paths and cache directories default to this source checkout. `YUE2_KIT` can explicitly select
 a different kit root containing `models` and `skills/yue2-music/scripts`.
 

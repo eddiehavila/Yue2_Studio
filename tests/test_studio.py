@@ -346,6 +346,16 @@ class HTTPTests(unittest.TestCase):
         for headers in ({'X-Studio-Token':''},{'Origin':'https://evil.invalid'},{'Host':'evil.invalid'}):
             with self.assertRaises(urllib.error.HTTPError) as ctx:self.request('/api/generate',payload(),headers)
             self.assertEqual(ctx.exception.code,403)
+    def test_host_names_and_mapped_ports(self):
+        with self.request('/api/bootstrap',headers={'Host':'localhost:8080'}) as response:self.assertEqual(response.status,200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.request('/api/generate',payload(),{'Host':'localhost:8080','Origin':'http://localhost:9999'})
+        self.assertEqual(ctx.exception.code,403)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:self.request('/api/bootstrap',headers={'Host':'studio.lan:7862'})
+        self.assertEqual(ctx.exception.code,403)
+        self.server.allowed_hosts.add('studio.lan')
+        with self.request('/api/bootstrap',headers={'Host':'studio.lan:7862','Origin':'http://studio.lan:7862'}) as response:
+            self.assertEqual(response.status,200)
     def test_job_errors_dont_enter_queue(self):
         p=payload();p['mode']='cover'
         with self.assertRaises(urllib.error.HTTPError):self.request('/api/generate',p)

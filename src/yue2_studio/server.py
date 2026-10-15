@@ -48,7 +48,8 @@ class StudioServer(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
         super().server_bind()
 
-    def __init__(self,address,manager=None,root=None):
+    def __init__(self,address,manager=None,root=None,allowed_hosts=()):
+        self.allowed_hosts = {'127.0.0.1','localhost',*(h.lower() for h in allowed_hosts)}
         self.browser_lifetime = BrowserLifetime()
         self.browser_stop = threading.Event()
         self.auto_stopping = False
@@ -101,12 +102,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def guard(self,write=False):
-        port = self.server.server_port
-        hosts = {f'127.0.0.1:{port}',f'localhost:{port}'}
-        if self.headers.get('Host') not in hosts:
-            raise PermissionError('Studio accepts loopback hosts only.')
+        host = self.headers.get('Host') or ''
+        name = urllib.parse.urlsplit('//'+host).hostname or ''
+        allowed = self.server.allowed_hosts
+        if '*' not in allowed and name not in allowed:
+            raise PermissionError('Studio accepts loopback hosts only. Start it with --allow-host to add others.')
         origin = self.headers.get('Origin')
-        if origin and origin not in {'http://'+host for host in hosts}:
+        if origin and origin!='http://'+host:
             raise PermissionError('Cross-origin requests are not allowed.')
         if write and not secrets.compare_digest(self.headers.get('X-Studio-Token',''),self.server.token):
             raise PermissionError('Studio session expired. Reload this page.')
@@ -437,13 +439,19 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser=argparse.ArgumentParser(description='YuE2 Studio — local music creation UI')
+    parser.add_argument('--host',default=os.environ.get('YUE2_STUDIO_HOST','127.0.0.1'),
+        help='Address to listen on; use 0.0.0.0 inside a container (default 127.0.0.1, or $YUE2_STUDIO_HOST)')
+    parser.add_argument('--allow-host',action='append',
+        default=[h for h in os.environ.get('YUE2_STUDIO_ALLOW_HOSTS','').split(',') if h.strip()],
+        help='Extra hostname or IP the browser may use to reach Studio (repeatable; * allows any)')
     parser.add_argument('--port',type=int,default=7862)
     parser.add_argument('--no-browser',action='store_true')
     parser.add_argument('--stop',action='store_true',help='Stop the studio listening on the selected port')
     parser.add_argument('--runs-dir',type=Path,default=ROOT/'runs/studio',help='Studio run and upload folder')
     args=parser.parse_args()
+    local=args.host if args.host not in ('','0.0.0.0','::') else '127.0.0.1'
     if args.stop:
-        url=f'http://127.0.0.1:{args.port}'
+        url=f'http://{local}:{args.port}'
         try:
             with urllib.request.urlopen(url+'/api/bootstrap',timeout=2) as response:
                 bootstrap=json.load(response)
@@ -456,9 +464,10 @@ def main():
             parser.error(f'Could not stop Studio on port {args.port}: {exc}')
         return
     try:
-        server=StudioServer(('127.0.0.1',args.port),root=args.runs_dir)
+        server=StudioServer((args.host,args.port),root=args.runs_dir,
+                            allowed_hosts=[h.strip() for h in args.allow_host]+[args.host])
     except OSError as exc:
-        url=f'http://127.0.0.1:{args.port}'
+        url=f'http://{local}:{args.port}'
         try:
             with urllib.request.urlopen(url+'/api/bootstrap',timeout=2) as response:
                 existing=json.load(response)
@@ -470,7 +479,7 @@ def main():
         if not args.no_browser:
             webbrowser.open(url)
         return
-    url=f'http://127.0.0.1:{server.server_port}'
+    url=f'http://{local}:{server.server_port}'
     print(f'YuE2 Studio: {url}\nRuns: {server.jobs.root}\nPress Ctrl+C to stop.',flush=True)
     if not args.no_browser:
         webbrowser.open(url)
