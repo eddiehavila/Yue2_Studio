@@ -85,6 +85,13 @@ For a clone outside the YuE2 folder, use `install_studio.py --target /path/to/Yu
 then run `/path/to/YuE2/launch_studio.py` with its environment. Windows launchers
 assume the standard nested layout. `--check` validates without installing.
 
+### Docker (Linux host with an NVIDIA GPU)
+
+To run YuE2 and Studio in a container instead, see [docker/README.md](docker/README.md). It builds on the
+[`mmartial/comfyui-nvidia-docker`](https://github.com/mmartial/ComfyUI-Nvidia-Docker) image, which comes
+with the CUDA toolkit and everything else NVIDIA acceleration needs. A start-up script installs YuE2,
+downloads the models and launches Studio on port 7862.
+
 ## 3. Check your paths, then create
 
 In **Advanced settings**, select your model and VAE paths and a GPU memory budget
