@@ -25,7 +25,10 @@ STUDIO_REPO="https://github.com/eddiehavila/Yue2_Studio.git"
 STUDIO_BRANCH="dockerized"
 STUDIO_PORT=7862
 
-# audio.cpp engine for Studio's GGUF backend. The commit is the one Studio's adapter
+# audio.cpp engine for Studio's optional GGUF backend. Off by default: Torch needs none of it.
+# Enable with YUE2_BUILD_AUDIOCPP=1 (e.g. under environment: in compose.yaml).
+BUILD_AUDIOCPP="${YUE2_BUILD_AUDIOCPP:-0}"
+# The commit is the one Studio's adapter
 # (src/yue2_studio/gguf.py) was checked against. The binary lands in build/bin under
 # tools/audio.cpp, where Studio detects it automatically.
 AUDIOCPP_REPO="https://github.com/0xShug0/audio.cpp.git"
@@ -137,8 +140,10 @@ ensure_root_or_sudo
 
 log "== Installing system packages"
 DEBIAN_FRONTEND=noninteractive sudo apt-get update -y
-apt_install_if_missing cmake        # audio.cpp build
-apt_install_if_missing ninja-build  # audio.cpp build
+if [[ "$BUILD_AUDIOCPP" == 1 ]]; then
+  apt_install_if_missing cmake        # audio.cpp build
+  apt_install_if_missing ninja-build  # audio.cpp build
+fi
 
 
 log "== Sync yue2_studio repo (contained under $YUE2_DIR)"
@@ -175,7 +180,11 @@ python -m pip install .
 
 log "== Ensure audio.cpp engine (GGUF backend)"
 # After the YuE reset/clean above: git clean leaves the nested audio.cpp repo alone.
-build_audiocpp || log "WARNING: audio.cpp build failed; GGUF is unavailable, the Torch engine still works"
+if [[ "$BUILD_AUDIOCPP" == 1 ]]; then
+  build_audiocpp || log "WARNING: audio.cpp build failed; GGUF is unavailable, the Torch engine still works"
+else
+  log "Skipping audio.cpp (set YUE2_BUILD_AUDIOCPP=1 to build it for the GGUF backend)"
+fi
 
 
 log "== Sync yue2_studio repo (contained under $YUE2_DIR)"
